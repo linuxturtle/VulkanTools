@@ -1,9 +1,8 @@
-#! /bin/bash
+#! /bin/bash -x
 # Simple test of devsim layer
 # Uses 'jq' v1.5 (https://stedolan.github.io/jq/) to extract sections of
 # test's JSON output and reformat for consistent comparison with gold file.
 
-set errexit
 set nounset
 set physical
 
@@ -19,20 +18,21 @@ else
     NC=''
 fi
 
+SUCCESS=1
 printf "$GREEN[ RUN      ]$NC $0\n"
 
 export LD_LIBRARY_PATH=${PWD}/../loader:${LD_LIBRARY_PATH}
 export VK_LAYER_PATH=${PWD}/../layersvt
 export VK_INSTANCE_LAYERS="VK_LAYER_LUNARG_device_simulation"
 
-#export VK_DEVSIM_DEBUG_ENABLE="1"
+export VK_DEVSIM_DEBUG_ENABLE="1"
 #export VK_DEVSIM_EXIT_ON_ERROR="1"
 #export VK_LOADER_DEBUG="all"
 
 VKJSON_INFO="../libs/vkjson/vkjson_info"
 
 #############################################################################
-# Test #1 input datafile, and filename of output.
+# Test #1 Load config files, compare output of vkjson_info against a gold file.
 
 FILENAME_01_IN="devsim_test1_in_ArrayOfVkFormatProperties.json:devsim_test1_in.json"
 FILENAME_01_GOLD="devsim_test1_gold.json"
@@ -46,13 +46,23 @@ ${VKJSON_INFO} > ${FILENAME_01_STDOUT}
 diff ${FILENAME_01_GOLD} \
     <(jq -S '{properties,features,memory,queues,formats}' ${FILENAME_01_RESULT}) \
     >> ${FILENAME_01_STDOUT}
-RES=$?
-rm ${FILENAME_01_RESULT}
-rm ${FILENAME_01_STDOUT}
+[ $? -eq 0 ] || SUCCESS=0
+cat ${FILENAME_01_STDOUT}
+#rm ${FILENAME_01_RESULT}
+#rm ${FILENAME_01_STDOUT}
+
+#############################################################################
+# Test #2 Exercise devsim's detection of requested Vulkan API version.
+
+./CreateInstanceVersion.py 1 0 0
+[ $? -eq 0 ] || SUCCESS=0
+
+./CreateInstanceVersion.py 1 1 0
+[ $? -ne 0 ] || SUCCESS=0
 
 #############################################################################
 
-if [ "$RES" -eq 0 ] ; then
+if [ "$SUCCESS" ] ; then
    printf "$GREEN[  PASSED  ]$NC ${PGM}\n"
 else
    printf "$RED[  FAILED  ]$NC file compare failed\n"
