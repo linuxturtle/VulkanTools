@@ -1492,19 +1492,7 @@ VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL GetInstanceProcAddr(VkInstance instance
 
 }  // anonymous namespace
 
-// Pre-Instance Intercepts (see [LALI]) //////////////////////////////////////////////////////////////////////////////////////////
-
-enum VkChainType;
-
-typedef struct VkEnumerateInstanceLayerPropertiesChain {
-    struct {
-        VkChainType type;
-        uint32_t version;
-        uint32_t size;
-    } header;
-    PFN_vkEnumerateInstanceLayerProperties pfnNextLayer;
-    const VkEnumerateInstanceLayerPropertiesChain *pNextLink;
-} VkEnumerateInstanceLayerPropertiesChain;
+// Pre-Instance Functions (see [LALI]) ///////////////////////////////////////////////////////////////////////////////////////////
 
 VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL devsimEnumerateInstanceLayerProperties(
     const VkEnumerateInstanceLayerPropertiesChain *pChain, uint32_t *pCount, VkLayerProperties *pProperties) {
@@ -1512,16 +1500,6 @@ VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL devsimEnumerateInstanceLayerPrope
     DebugPrintf("devsimEnumerateInstanceLayerProperties\n");
     return VK_SUCCESS;
 }
-
-typedef struct VkEnumerateInstanceExtensionPropertiesChain {
-    struct {
-        VkChainType type;
-        uint32_t version;
-        uint32_t size;
-    } header;
-    PFN_vkEnumerateInstanceExtensionProperties pfnNextLayer;
-    const VkEnumerateInstanceExtensionPropertiesChain *pNextLink;
-} VkEnumerateInstanceExtensionPropertiesChain;
 
 VK_LAYER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL
 devsimEnumerateInstanceExtensionProperties(const VkEnumerateInstanceExtensionPropertiesChain *pChain, const char *pLayerName,
