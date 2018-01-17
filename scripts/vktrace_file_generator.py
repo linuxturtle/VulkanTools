@@ -18,6 +18,7 @@
 # limitations under the License.
 #
 # Author: Mark Lobodzinski <mark@lunarg.com>
+#         Joey Bzdek       <joey@lunarg.com>
 
 import os,re,sys
 import xml.etree.ElementTree as etree
@@ -206,7 +207,7 @@ class VkTraceFileOutputGenerator(OutputGenerator):
         OutputGenerator.__init__(self, errFile, warnFile, diagFile)
         # Internal state - accumulators for different inner block text
         self.structNames = []                             # List of Vulkan struct typenames
-        self.structMembers = []                           # List of StructMemberData records for all Vulkan structs
+        self.typeMembers = []                             # List of TypeMemberData for all Vulkan types
         self.object_types = []                            # List of all handle types
         self.debug_report_object_types = []               # Handy copy of debug_report_object_type enum data
         self.CmdInfoData = namedtuple('CmdInfoData', ['name', 'cmdinfo'])
@@ -222,6 +223,7 @@ class VkTraceFileOutputGenerator(OutputGenerator):
         self.StructType = namedtuple('StructType', ['name', 'value'])
         self.CommandParam = namedtuple('CommandParam', ['type', 'name', 'ispointer', 'isstaticarray', 'isconst', 'iscount', 'len', 'cdecl', 'feature_protect', 'handle'])
         self.StructMemberData = namedtuple('StructMemberData', ['name', 'members', 'ifdef_protect'])
+        self.TypeMemberData = namedtuple('TypeMemberData', ['name', 'members', 'ifdef_protect'])
     #
     # Called once at the beginning of each run
     def beginFile(self, genOpts):
@@ -260,6 +262,7 @@ class VkTraceFileOutputGenerator(OutputGenerator):
         copyright += ' * Author: Tobin Ehlis <tobin@lunarg.com>\n'
         copyright += ' * Author: Peter Lohrmann <peterl@valvesoftware.com>\n'
         copyright += ' * Author: David Pinedo <david@lunarg.com>\n'
+        copyright += ' * Author: Joey Bzdek <joey@lunarg.com>\n'
         copyright += ' *\n'
         copyright += ' ****************************************************************************/\n'
         write(copyright, file=self.outFile)
@@ -276,17 +279,51 @@ class VkTraceFileOutputGenerator(OutputGenerator):
         OutputGenerator.endFile(self)
     #
     # Called for each type -- if the type is a struct/union, grab the metadata
-    def genType(self, typeinfo, name):
-        OutputGenerator.genType(self, typeinfo, name)
+    def genType(self, typeinfo, typeName):
+        OutputGenerator.genType(self, typeinfo, typeName)
         typeElem = typeinfo.elem
         # If the type is a struct type, traverse the imbedded <member> tags generating a structure.
         # Otherwise, emit the tag text.
         category = typeElem.get('category')
         if category == 'handle':
-            self.object_types.append(name)
+            self.object_types.append(typeName)
         elif (category == 'struct' or category == 'union'):
-            self.structNames.append(name)
-            self.genStruct(typeinfo, name)
+            self.structNames.append(typeName)
+            self.genStruct(typeinfo, typeName)
+        
+        # Ignore certain categories in typeMembers
+        if category == 'define' or category == 'include':
+            return
+
+        members = typeinfo.elem.findall('.//member')
+        # Iterate over members once to get length parameters for arrays
+        lens = set()
+        for member in members:
+            len = self.getLen(member)
+            if len:
+                lens.add(len)
+        # Generate member info
+        membersInfo = []
+        for member in members:
+            # Get the member's type and name
+            info = self.getTypeNameTuple(member)
+            type = info[0]
+            name = info[1]
+            cdecl = self.makeCParamDecl(member, 1)
+            # Store pointer/array/string info
+            isstaticarray = self.paramIsStaticArray(member)
+            handle = self.registry.tree.find("types/type/[name='" + type + "'][@category='handle']")
+            membersInfo.append(self.CommandParam(type=type,
+                                                 name=name,
+                                                 ispointer=self.paramIsPointer(member),
+                                                 isstaticarray=isstaticarray,
+                                                 isconst=True if 'const' in cdecl else False,
+                                                 iscount=True if name in lens else False,
+                                                 len=self.getLen(member),
+                                                 cdecl=cdecl,
+                                                 feature_protect=self.featureExtraProtect,
+                                                 handle=handle))
+        self.typeMembers.append(self.TypeMemberData(name=typeName, members=membersInfo, ifdef_protect=self.featureExtraProtect))
     #
     # Check if the parameter passed in is a pointer
     def paramIsPointer(self, param):
@@ -372,9 +409,9 @@ class VkTraceFileOutputGenerator(OutputGenerator):
             return True
         # if handle_type is a struct, search its members
         if handle_type in self.structNames:
-            member_index = next((i for i, v in enumerate(self.structMembers) if v[0] == handle_type), None)
+            member_index = next((i for i, v in enumerate(self.typeMembers) if v[0] == handle_type), None)
             if member_index is not None:
-                for item in self.structMembers[member_index].members:
+                for item in self.typeMembers[member_index].members:
                     handle = self.registry.tree.find("types/type/[name='" + item.type + "'][@category='handle']")
                     if handle is not None and handle.find('type').text == type_key:
                         return True
@@ -422,38 +459,8 @@ class VkTraceFileOutputGenerator(OutputGenerator):
         self.cmd_extension_names.append(self.cmd_extension_data(name=cmdname, extension_name=self.current_feature_name))
         self.cmd_feature_protect.append(self.CmdExtraProtect(name=cmdname, extra_protect=self.featureExtraProtect))
     #
-    # Generate local ready-access data describing Vulkan structures and unions from the XML metadata
     def genStruct(self, typeinfo, typeName):
         OutputGenerator.genStruct(self, typeinfo, typeName)
-        members = typeinfo.elem.findall('.//member')
-        # Iterate over members once to get length parameters for arrays
-        lens = set()
-        for member in members:
-            len = self.getLen(member)
-            if len:
-                lens.add(len)
-        # Generate member info
-        membersInfo = []
-        for member in members:
-            # Get the member's type and name
-            info = self.getTypeNameTuple(member)
-            type = info[0]
-            name = info[1]
-            cdecl = self.makeCParamDecl(member, 1)
-            # Store pointer/array/string info
-            isstaticarray = self.paramIsStaticArray(member)
-            handle = self.registry.tree.find("types/type/[name='" + type + "'][@category='handle']")
-            membersInfo.append(self.CommandParam(type=type,
-                                                 name=name,
-                                                 ispointer=self.paramIsPointer(member),
-                                                 isstaticarray=isstaticarray,
-                                                 isconst=True if 'const' in cdecl else False,
-                                                 iscount=True if name in lens else False,
-                                                 len=self.getLen(member),
-                                                 cdecl=cdecl,
-                                                 feature_protect=self.featureExtraProtect,
-                                                 handle=handle))
-        self.structMembers.append(self.StructMemberData(name=typeName, members=membersInfo, ifdef_protect=self.featureExtraProtect))
     #
     def beginFeature(self, interface, emit):
         # Start processing in superclass
@@ -2842,6 +2849,99 @@ class VkTraceFileOutputGenerator(OutputGenerator):
         return trace_pkt_hdr
 
     #
+    # Generate .proto file for Google Protocol Buffers
+    # https://developers.google.com/protocol-buffers/docs/proto3
+    def GenerateTraceVkProtocol(self):
+        
+        # Header
+        output = ('syntax = "proto3";\n\n'
+                  'package vktrace;\n\n'
+                  'import "google/protobuf/any.proto";\n\n')
+
+        # Struct Messages
+        for struct in self.typeMembers:
+            output += self.GenerateMessage(struct)
+        
+        # Command Messages (packets)
+        for cmd in self.cmdMembers:
+            output += self.GenerateMessage(cmd)
+
+        return output
+
+    def GenerateMessage(self, cmd):
+
+        # Message header
+        output = 'message %s {\n' % cmd.name
+        # Message fields
+        if len(cmd.members) == 0:
+            # Treat entire message as uint64 for now
+            output += '  uint64 data = 1;\n'
+        else:
+            count = 1            
+            for member in cmd.members:
+                if member.name == '': # TODO: Figure out why blank members are in the code gen
+                    break
+                protocolType = self.GetProtocolType(member)
+                output += '  %s %s = %s;\n' % (protocolType, member.name, count)
+                count += 1
+        output += '}\n\n'
+
+        return output
+
+    def GetProtocolType(self, member):
+        # Use the code type by default, assuming there will be a message type to stand for it if it is not primitive
+        protocolType = member.type
+
+        ### Specific arg exceptions ###
+        if member.name == 'pNext':
+            protocolType = 'google.protobuf.Any'        
+
+        ### General Type Mapping ###
+        elif member.ispointer and member.type == 'void':
+            protocolType = 'bytes'
+        elif member.type == 'double' or member.type == 'float' or member.type == 'bool' or member.type == 'string':
+            # These have the same name
+            protocolType = member.type
+        elif member.type == 'char':
+            protocolType = 'string'
+        elif member.type == 'int32_t' or member.type == 'int':
+            protocolType = 'int32'
+        elif member.type == 'int64_t' or member.type == 'long':
+            protocolType = 'int64'
+        elif member.type == 'uint32_t' or member.type == 'unsigned int':
+            protocolType = 'uint32'
+        elif member.type == 'uint64_t' or member.type == 'unsigned long' or member.type == 'size_t':
+            protocolType = 'uint64'
+
+        # This could be a flags type or something else.
+        else:
+            # Handles and inline types are uint64
+            if member.handle or 'Mask' in member.type or 'Flags' in member.type or 'Bits' in member.type or 'Type' in member.type or 'Size' in member.type:
+                protocolType = 'uint64'
+                if member.ispointer:
+                    protocolType = 'repeated ' + protocolType
+
+        # Add repeated for nested pointers
+        if member.name[:2] == 'pp':
+            protocolType = 'repeated ' + protocolType
+
+        return protocolType
+
+
+    def GenerateTraceSerializationHeader(self):
+
+        output = "// test"
+
+        return output
+
+
+    def GenerateTraceSerializationCpp(self):
+
+        output = "// test"
+
+        return output
+
+    #
     # Create a vktrace file and return it as a string
     def OutputDestFile(self):
         if self.vktrace_file_type == 'vkreplay_objmapper_header':
@@ -2856,6 +2956,12 @@ class VkTraceFileOutputGenerator(OutputGenerator):
             return self.GenerateTraceVkSource()
         elif self.vktrace_file_type == 'vktrace_vk_packets_header':
             return self.GenerateTraceVkPacketsHeader()
+        elif self.vktrace_file_type == 'vktrace_vk_proto':
+            return self.GenerateTraceVkProtocol()
+        elif self.vktrace_file_type == 'vktrace_serialization_h':
+            return self.GenerateTraceSerializationHeader()
+        elif self.vktrace_file_type == 'vktrace_serialization_cpp':
+            return self.GenerateTraceSerializationCpp()
         else:
             return 'Bad VkTrace File Generator Option %s' % self.vktrace_file_type
 
