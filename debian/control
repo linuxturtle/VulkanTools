@@ -1,0 +1,37 @@
+Source: vulkan-tools
+Section: libdevel
+Priority: optional
+Maintainer: Brett Johnson <brett@linuxturtle.net>
+Build-Depends: debhelper (>=9),
+ cmake,
+ bison,
+ libx11-xcb-dev,
+ libxkbcommon-dev,
+ libmirclient-dev,
+ libwayland-dev,
+ libxrandr-dev,
+ wget autotools-dev,
+ libxcb-keysyms1,
+ libxcb-keysyms1-dev
+Standards-Version: 3.9.6
+Homepage: https://github.com/LunarG/VulkanTools
+Vcs-Git: https://github.com/linuxturtle/VulkanTools.git
+Vcs-Browser: https://github.com/linuxturtle/VulkanTools
+
+Package: vulkan-lunarg-layers
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: <insert up to 60 chars description>
+ <insert long description, indented with spaces>
+
+Package: vulkan-trace
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: <insert up to 60 chars description>
+ <insert long description, indented with spaces>
+
+Package: vulkan-via
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: <insert up to 60 chars description>
+ <insert long description, indented with spaces>
