@@ -1,8 +1,10 @@
 #!/usr/bin/make -f
 # See debhelper(7) (uncomment to enable)
 # output every command that modifies files on the build system.
-#export DH_VERBOSE = 1
+export DH_VERBOSE = 1
 
+DPKG_EXPORT_BUILDFLAGS = 1
+include /usr/share/dpkg/default.mk
 
 # see FEATURE AREAS in dpkg-buildflags(1)
 #export DEB_BUILD_MAINT_OPTIONS = hardening=+all
@@ -15,11 +17,35 @@
 
 
 %:
-	dh $@ 
+	dh $@
 
+# Do this manually before building instead.
+#update_sources:
+#	./debian/update_shaderc_sources.py
+
+#override_dh_clean:
+#	dh_clean
 
 # dh_make generated override targets
 # This is example for Cmake (See https://bugs.debian.org/641051 )
-#override_dh_auto_configure:
-#	dh_auto_configure -- #	-DCMAKE_LIBRARY_PATH=$(DEB_HOST_MULTIARCH)
+override_dh_auto_configure:
+	dh_auto_configure -- \
+	-DCMAKE_BUILD_TYPE=Release \
+	-DCMAKE_INSTALL_PREFIX=/usr \
+	-DCMAKE_INSTALL_LIBDIR=/usr/lib/$(DEB_HOST_MULTIARCH) \
+	-DBUILD_LAYERS=OFF \
+	-DBUILD_TESTS=OFF \
+	-DBUILD_DEMOS=OFF
 
+override_dh_auto_install:
+	dh_auto_install --destdir=debian/tmp
+	mkdir -p debian/tmp/usr/share/vulkan/explicit_layer.d
+	mv debian/tmp/etc/vulkan/explicit_layer.d/*.json \
+	   debian/tmp/usr/share/vulkan/explicit_layer.d
+
+gentarball: SOURCE=vulkan-tools
+gentarball: UV=$(shell dpkg-parsechangelog|awk '/^Version:/ {print $$2}'|sed 's/-.*$$//')
+gentarball:
+	tar --transform 's,^,$(SOURCE)-$(UV)/,' \
+		--exclude 'debian' --exclude-vcs \
+		-cJf ../$(SOURCE)_$(UV).orig.tar.xz .
