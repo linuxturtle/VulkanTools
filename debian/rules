@@ -1,10 +1,16 @@
 #!/usr/bin/make -f
 # See debhelper(7) (uncomment to enable)
 # output every command that modifies files on the build system.
-export DH_VERBOSE = 1
+#export DH_VERBOSE = 1
 
 DPKG_EXPORT_BUILDFLAGS = 1
 include /usr/share/dpkg/default.mk
+
+ifneq (,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+	NUMJOBS = $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+	MAKE_FLAGS += $(if $(NUMJOBS),-j$(NUMJOBS))
+endif
+
 
 # see FEATURE AREAS in dpkg-buildflags(1)
 #export DEB_BUILD_MAINT_OPTIONS = hardening=+all
@@ -17,11 +23,7 @@ include /usr/share/dpkg/default.mk
 
 
 %:
-	dh $@
-
-# Do this manually before building instead.
-#update_sources:
-#	./debian/update_shaderc_sources.py
+	dh $@ --parallel --with quilt --builddirectory=build/
 
 #override_dh_clean:
 #	dh_clean
