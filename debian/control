@@ -4,18 +4,14 @@ Priority: optional
 Maintainer: Brett Johnson <brett@linuxturtle.net>
 Build-Depends: debhelper (>=9),
  cmake,
- bison,
- libx11-xcb-dev,
- libxkbcommon-dev,
- libmirclient-dev,
  libwayland-dev,
+ libx11-dev,
+ libxcb1-dev,
  libxrandr-dev,
- wget,
- autotools-dev,
- libxcb-keysyms1,
- libxcb-keysyms1-dev,
- libjsoncpp-dev,
- libjsoncpp1
+ pkg-config,
+ python3,
+ python3-lxml,
+ quilt
 Standards-Version: 3.9.6
 Homepage: https://github.com/LunarG/VulkanTools
 Vcs-Git: https://github.com/linuxturtle/VulkanTools.git
