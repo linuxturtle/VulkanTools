@@ -3,6 +3,7 @@ Section: libdevel
 Priority: optional
 Maintainer: Brett Johnson <brett@linuxturtle.net>
 Build-Depends: debhelper (>=9),
+ libvulkan-dev,
  cmake,
  bison,
  libx11-xcb-dev,
