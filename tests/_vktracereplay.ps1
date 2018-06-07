@@ -28,7 +28,7 @@ if (Test-Path .\vktracereplay_tmp) {
 }
 new-item vktracereplay_tmp -itemtype directory > $null 2> $null
 
-$LVL_DIR = "submodules\Vulkan-Tools\"
+$LVL_DIR = "Vulkan-Tools\"
 
 # Copy everything we need into the temp directory, so we
 # can make sure we are using the correct dll and exe files
