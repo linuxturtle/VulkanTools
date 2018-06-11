@@ -3,6 +3,15 @@ file(GLOB TEXTURES
 )
 file(COPY ${TEXTURES} DESTINATION ${CMAKE_BINARY_DIR}/via/images)
 
+if (VULKAN_LOADER_INSTALL_DIR)
+    message(STATUS "VULKAN_LOADER_INSTALL_DIR specified, using find_package to locate Vulkan")
+elseif(ENV{VULKAN_LOADER_INSTALL_DIR})
+    message(STATUS "VULKAN_LOADER_INSTALL_DIR environment variable specified, using find_package to locate Vulkan")
+endif()
+set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH};${VULKAN_LOADER_INSTALL_DIR};${VULKAN_HEADERS_INSTALL_DIR};$ENV{VULKAN_LOADER_INSTALL_DIR};$ENV{VULKAN_HEADERS_INSTALL_DIR})
+find_package(Vulkan)
+set (LIBVK "Vulkan::Vulkan")
+
 if(WIN32)
 
     # Use static MSVCRT libraries
