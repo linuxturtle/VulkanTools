@@ -43,7 +43,7 @@
 
 vkreplayer_settings replaySettings = {NULL, 1, UINT_MAX, UINT_MAX, true, NULL, NULL, NULL};
 
-#ifdef ANDROID
+#if defined(ANDROID)
 const char* env_var_screenshot_frames = "debug.vulkan.screenshot";
 const char* env_var_screenshot_format = "debug.vulkan.screenshot.format";
 #else
@@ -111,7 +111,7 @@ vktrace_SettingInfo g_settings_info[] = {
      {&replaySettings.screenshotColorFormat},
      TRUE,
      "Color Space format of screenshot files. Formats are UNORM, SNORM, USCALED, SSCALED, UINT, SINT, SRGB"},
-#if _DEBUG
+#if defined(_DEBUG)
     {"v",
      "Verbosity",
      VKTRACE_SETTING_STRING,
@@ -163,7 +163,16 @@ int main_loop(vktrace_replay::ReplayDisplay display, Sequencer& seq, vktrace_tra
     uint64_t end_time;
     uint64_t start_frame = settings.loopStartFrame == UINT_MAX ? 0 : settings.loopStartFrame;
     uint64_t end_frame = UINT_MAX;
+    const char* screenshot_list = replaySettings.screenshotList;
     while (settings.numLoops > 0) {
+        if (settings.numLoops > 1 && replaySettings.screenshotList != NULL) {
+            // Don't take screenshots until the last loop
+            replaySettings.screenshotList = NULL;
+        } else if (settings.numLoops == 1 && replaySettings.screenshotList != screenshot_list) {
+            // Re-enable screenshots on last loop if they have been disabled
+            replaySettings.screenshotList = screenshot_list;
+        }
+
         while (trace_running) {
             display.process_event();
             if (display.get_quit_status()) {
@@ -252,12 +261,6 @@ int main_loop(vktrace_replay::ReplayDisplay display, Sequencer& seq, vktrace_tra
                             : std::min((unsigned int)replayer->GetFrameNumber(), settings.loopEndFrame);
         totalLoopFrames += end_frame - start_frame;
 
-        // if screenshot is enabled run it for one cycle only
-        // as all consecutive cycles must generate same screen
-        if (replaySettings.screenshotList != NULL) {
-            vktrace_free((char*)replaySettings.screenshotList);
-            replaySettings.screenshotList = NULL;
-        }
         seq.set_bookmark(startingPacket);
         trace_running = true;
         if (replayer != NULL) {
@@ -388,7 +391,7 @@ int vkreplay_main(int argc, char** argv, vktrace_window_handle window = 0) {
         vktrace_LogSetLevel(VKTRACE_LOG_WARNING);
     else if (!strcmp(replaySettings.verbosity, "full"))
         vktrace_LogSetLevel(VKTRACE_LOG_VERBOSE);
-#if _DEBUG
+#if defined(_DEBUG)
     else if (!strcmp(replaySettings.verbosity, "debug"))
         vktrace_LogSetLevel(VKTRACE_LOG_DEBUG);
 #endif
@@ -538,7 +541,7 @@ int vkreplay_main(int argc, char** argv, vktrace_window_handle window = 0) {
     vktrace_replay::ReplayDisplay disp(100, 100, 0, false);
 #endif
 //**********************************************************
-#if _DEBUG
+#if defined(_DEBUG)
     static BOOL debugStartup = FALSE;  // TRUE
     while (debugStartup)
         ;

@@ -26,6 +26,7 @@
 #include "vulkan/vk_layer.h"
 #include "vktrace_platform.h"
 
+#include "vk_layer_dispatch_table.h"
 #include "vk_struct_size_helper.h"
 
 // Support for shadowing CPU mapped memory
