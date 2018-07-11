@@ -1009,7 +1009,7 @@ void snapshot_state_tracker() {
                         // buffer memory size.
 
                         copyRegion.bufferOffset = layout.offset;
-                        copyRegion.imageExtent.depth = 1;
+                        copyRegion.imageExtent.depth = imageIter->second.ObjectInfo.Image.extent.depth;
                         copyRegion.imageExtent.width = imageIter->second.ObjectInfo.Image.extent.width;
                         copyRegion.imageExtent.height = imageIter->second.ObjectInfo.Image.extent.height;
                         copyRegion.imageOffset.x = 0;
@@ -1036,7 +1036,7 @@ void snapshot_state_tracker() {
                         // copy to be tightly packed according to the imageExtent.
 
                         copyRegion.bufferOffset = layout.offset;
-                        copyRegion.imageExtent.depth = 1;
+                        copyRegion.imageExtent.depth = imageIter->second.ObjectInfo.Image.extent.depth;
                         copyRegion.imageExtent.width = imageIter->second.ObjectInfo.Image.extent.width;
                         copyRegion.imageExtent.height = imageIter->second.ObjectInfo.Image.extent.height;
                         copyRegion.imageOffset.x = 0;
@@ -1066,7 +1066,7 @@ void snapshot_state_tracker() {
                         copyRegion.bufferRowLength = 0;    //< tightly packed texels
                         copyRegion.bufferImageHeight = 0;  //< tightly packed texels
                         copyRegion.bufferOffset = lay.offset;
-                        copyRegion.imageExtent.depth = 1;
+                        copyRegion.imageExtent.depth = imageIter->second.ObjectInfo.Image.extent.depth >> i;
                         copyRegion.imageExtent.width = (imageIter->second.ObjectInfo.Image.extent.width >> i);
                         copyRegion.imageExtent.height = (imageIter->second.ObjectInfo.Image.extent.height >> i);
                         copyRegion.imageOffset.x = 0;
@@ -1489,6 +1489,7 @@ void snapshot_state_tracker() {
 }
 
 //=========================================================================
+#if TRIM_USE_ORDERED_IMAGE_CREATION
 void add_Image_call(vktrace_trace_packet_header *pHeader) {
     if (pHeader != NULL) {
         vktrace_enter_critical_section(&trimStateTrackerLock);
@@ -1496,7 +1497,7 @@ void add_Image_call(vktrace_trace_packet_header *pHeader) {
         vktrace_leave_critical_section(&trimStateTrackerLock);
     }
 }
-
+#endif  // TRIM_USE_ORDERED_IMAGE_CREATION
 //=========================================================================
 ObjectInfo &add_Instance_object(VkInstance var) {
     vktrace_enter_critical_section(&trimStateTrackerLock);
@@ -2780,19 +2781,6 @@ void write_all_referenced_object_calls() {
         }
     }
 
-    // SwapchainKHR
-    for (auto obj = stateTracker.createdSwapchainKHRs.begin(); obj != stateTracker.createdSwapchainKHRs.end(); obj++) {
-        vktrace_write_trace_packet(obj->second.ObjectInfo.SwapchainKHR.pCreatePacket, vktrace_trace_get_trace_file());
-        vktrace_delete_trace_packet_no_lock(&(obj->second.ObjectInfo.SwapchainKHR.pCreatePacket));
-
-        vktrace_write_trace_packet(obj->second.ObjectInfo.SwapchainKHR.pGetSwapchainImageCountPacket,
-                                   vktrace_trace_get_trace_file());
-        vktrace_delete_trace_packet_no_lock(&(obj->second.ObjectInfo.SwapchainKHR.pGetSwapchainImageCountPacket));
-
-        vktrace_write_trace_packet(obj->second.ObjectInfo.SwapchainKHR.pGetSwapchainImagesPacket, vktrace_trace_get_trace_file());
-        vktrace_delete_trace_packet_no_lock(&(obj->second.ObjectInfo.SwapchainKHR.pGetSwapchainImagesPacket));
-    }
-
     // DeviceMemory
     for (auto obj = stateTracker.createdDeviceMemorys.begin(); obj != stateTracker.createdDeviceMemorys.end(); obj++) {
         // AllocateMemory
@@ -2820,14 +2808,57 @@ void write_all_referenced_object_calls() {
         }
     }
 
-#ifdef TRIM_USE_ORDERED_IMAGE_CREATION
+#if TRIM_USE_ORDERED_IMAGE_CREATION
     for (auto iter = stateTracker.m_image_calls.begin(); iter != stateTracker.m_image_calls.end(); ++iter) {
         vktrace_write_trace_packet(*iter, vktrace_trace_get_trace_file());
         vktrace_delete_trace_packet_no_lock(&(*iter));
     }
 #endif  // TRIM_USE_ORDERED_IMAGE_CREATION
+
+    // The location of following code block which is used to recreate
+    // Swapchain must be put before ordered image creation if
+    // TRIM_USE_ORDERED_IMAGE_CREATION is enabled. the reason:
+    // Let's consider the following calls during capture a title:
+    //
+    //      vkCreateImage --->the handle value of created image is A
+    //      ......
+    //      vkDestroyImage ----> destroy A
+    //      ......
+    //      vkGetSwapchainImagesKHR ----> get an array B of swapchain images
+    //
+    // for some titles on specific hardware/driver, we can found
+    // sometimes A is same value with one element of B. It caused crash
+    // problem for trimmed trace file playback if we keep Swapchain recreation
+    // before ordered image creation, that's because trim generate following
+    // calls:
+    //
+    //      vkGetSwapchainImagesKHR ----> get an array B of swapchain images
+    //      ......
+    //      vkCreateImage --->created image handle value is A
+    //      ......
+    //      vkDestroyImage ----> destroy A
+    //
+    // During playback, swapchain images will be first put in map, and then
+    // A will be put in map, then map item will be deleted when meet
+    // vkDestroyImage A, after here, any call which need remap A will get
+    // error, but compared with original title, the remap should return that
+    // swapchain image.
+
+    // SwapchainKHR
+    for (auto obj = stateTracker.createdSwapchainKHRs.begin(); obj != stateTracker.createdSwapchainKHRs.end(); obj++) {
+        vktrace_write_trace_packet(obj->second.ObjectInfo.SwapchainKHR.pCreatePacket, vktrace_trace_get_trace_file());
+        vktrace_delete_trace_packet_no_lock(&(obj->second.ObjectInfo.SwapchainKHR.pCreatePacket));
+
+        vktrace_write_trace_packet(obj->second.ObjectInfo.SwapchainKHR.pGetSwapchainImageCountPacket,
+                                   vktrace_trace_get_trace_file());
+        vktrace_delete_trace_packet_no_lock(&(obj->second.ObjectInfo.SwapchainKHR.pGetSwapchainImageCountPacket));
+
+        vktrace_write_trace_packet(obj->second.ObjectInfo.SwapchainKHR.pGetSwapchainImagesPacket, vktrace_trace_get_trace_file());
+        vktrace_delete_trace_packet_no_lock(&(obj->second.ObjectInfo.SwapchainKHR.pGetSwapchainImagesPacket));
+    }
+
     for (auto obj = stateTracker.createdImages.begin(); obj != stateTracker.createdImages.end(); obj++) {
-#ifndef TRIM_USE_ORDERED_IMAGE_CREATION
+#if !TRIM_USE_ORDERED_IMAGE_CREATION
         // CreateImage
         if (obj->second.ObjectInfo.Image.pCreatePacket != NULL) {
             vktrace_write_trace_packet(obj->second.ObjectInfo.Image.pCreatePacket, vktrace_trace_get_trace_file());

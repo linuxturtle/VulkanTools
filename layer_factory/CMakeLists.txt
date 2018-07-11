@@ -123,21 +123,23 @@ SUBDIRLIST(ST_SUBDIRS ${CMAKE_LAYER_FACTORY_SOURCE_DIR})
 set(dep_chain generate_vlf)
 FOREACH(subdir ${ST_SUBDIRS})
     file(GLOB INTERCEPTOR_SOURCES ${CMAKE_LAYER_FACTORY_SOURCE_DIR}/${subdir}/*.h ${CMAKE_LAYER_FACTORY_SOURCE_DIR}/${subdir}/*.cpp)
-    add_factory_layer(${subdir} ${CMAKE_LAYER_FACTORY_SOURCE_DIR}/${subdir} layer_factory.cpp layer_factory.h ${Vulkan-ValidationLayers_INCLUDE_DIR}/vk_layer_table.cpp ${INTERCEPTOR_SOURCES})
+    add_factory_layer(${subdir} ${CMAKE_LAYER_FACTORY_SOURCE_DIR}/${subdir} layer_factory.cpp layer_factory.h ${INTERCEPTOR_SOURCES})
     add_dependencies(VkLayer_${subdir} ${dep_chain})
     set(dep_chain VkLayer_${subdir})
 ENDFOREACH()
 
 # Add targets for JSON file install.
 # Need to remove the "./" from the library path before installing to /etc.
-foreach (factory_layer ${ST_SUBDIRS})
-    set(config_file VkLayer_${factory_layer})
-    add_custom_target(${config_file}-staging-json ALL
-        COMMAND mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/../layers/staging-json
-        COMMAND cp ${CMAKE_CURRENT_BINARY_DIR}/../layers/${config_file}.json ${CMAKE_CURRENT_BINARY_DIR}/../layers/staging-json
-        COMMAND sed -i -e "/\"library_path\":/s$./libVkLayer$libVkLayer$" ${CMAKE_CURRENT_BINARY_DIR}/../layers/staging-json/${config_file}.json
-        VERBATIM
-        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/../layers/${config_file}.json
-        )
-    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/../layers/staging-json/${config_file}.json DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/vulkan/explicit_layer.d)
-endforeach(factory_layer)
+if(UNIX)
+    foreach (factory_layer ${ST_SUBDIRS})
+        set(config_file VkLayer_${factory_layer})
+        add_custom_target(${config_file}-staging-json ALL
+            COMMAND mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/../layers/staging-json
+            COMMAND cp ${CMAKE_CURRENT_BINARY_DIR}/../layers/${config_file}.json ${CMAKE_CURRENT_BINARY_DIR}/../layers/staging-json
+            COMMAND sed -i -e "/\"library_path\":/s$./libVkLayer$libVkLayer$" ${CMAKE_CURRENT_BINARY_DIR}/../layers/staging-json/${config_file}.json
+            VERBATIM
+            DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/../layers/${config_file}.json
+            )
+        install(FILES ${CMAKE_CURRENT_BINARY_DIR}/../layers/staging-json/${config_file}.json DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/vulkan/explicit_layer.d)
+    endforeach(factory_layer)
+endif()

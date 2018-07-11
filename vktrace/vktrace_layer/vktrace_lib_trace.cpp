@@ -220,7 +220,7 @@ VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkMapMemory(VkDevice dev
     vktrace_trace_packet_header* pHeader;
     packet_vkMapMemory* pPacket = NULL;
     VKAllocInfo* entry;
-#ifdef USE_PAGEGUARD_SPEEDUP
+#if defined(USE_PAGEGUARD_SPEEDUP)
     pageguardEnter();
 #endif
     CREATE_TRACE_PACKET(vkMapMemory, sizeof(void*));
@@ -233,7 +233,14 @@ VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkMapMemory(VkDevice dev
         size = entry->totalSize - offset;
     }
 
-#ifdef USE_PAGEGUARD_SPEEDUP
+#if defined(USE_PAGEGUARD_SPEEDUP)
+    // Pageguard handling will change real mapped memory pointer to a pointer
+    // of shadow memory, but trim need to use real mapped pointer to keep
+    // the pageguard status no change.
+    //
+    // So here, we save the real mapped memory pointer before page guard
+    // handling replace it with shadow memory pointer.
+    void* pRealMappedData = *ppData;
     getPageGuardControlInstance().vkMapMemoryPageGuardHandle(device, memory, offset, size, flags, ppData);
 #endif
     pPacket = interpret_body_as_vkMapMemory(pHeader);
@@ -259,7 +266,23 @@ VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkMapMemory(VkDevice dev
         if (pInfo != NULL) {
             pInfo->ObjectInfo.DeviceMemory.mappedOffset = offset;
             pInfo->ObjectInfo.DeviceMemory.mappedSize = size;
-            pInfo->ObjectInfo.DeviceMemory.mappedAddress = *ppData;
+
+            // Page guard handling create a shadow memory for every mapped
+            // memory object and add page guard to capture the access of
+            // write and read, so the page guard handling can keep dual
+            // direction of sync between real mapped memory and the shadow
+            // memory.
+            //
+            // When starting trim, trim process need to read and save all image
+            // and buffer data to trace file, that will trigger all page guard
+            // on those memory if trim access shadow memory, and the status of
+            // page guard for those memory will be different with capture
+            // without trim. It causes corruption for some title if trim at
+            // some locations.
+            //
+            // So here we make trim to use real memory pointer to avoid change
+            // the pageguard status when PMB enabled.
+            pInfo->ObjectInfo.DeviceMemory.mappedAddress = pRealMappedData;
         }
         if (g_trimIsInTrim) {
             trim::write_packet(pHeader);
@@ -267,7 +290,7 @@ VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkMapMemory(VkDevice dev
             vktrace_delete_trace_packet(&pHeader);
         }
     }
-#ifdef USE_PAGEGUARD_SPEEDUP
+#if defined(USE_PAGEGUARD_SPEEDUP)
     pageguardExit();
 #endif
     return result;
@@ -278,7 +301,7 @@ VKTRACER_EXPORT VKAPI_ATTR void VKAPI_CALL __HOOKED_vkUnmapMemory(VkDevice devic
     packet_vkUnmapMemory* pPacket;
     VKAllocInfo* entry;
     size_t siz = 0;
-#ifdef USE_PAGEGUARD_SPEEDUP
+#if defined(USE_PAGEGUARD_SPEEDUP)
     void* PageGuardMappedData = NULL;
     pageguardEnter();
     getPageGuardControlInstance().vkUnmapMemoryPageGuardHandle(device, memory, &PageGuardMappedData,
@@ -330,7 +353,7 @@ VKTRACER_EXPORT VKAPI_ATTR void VKAPI_CALL __HOOKED_vkUnmapMemory(VkDevice devic
             vktrace_delete_trace_packet(&pHeader);
         }
     }
-#ifdef USE_PAGEGUARD_SPEEDUP
+#if defined(USE_PAGEGUARD_SPEEDUP)
     if (PageGuardMappedData != nullptr) {
         pageguardFreeMemory(PageGuardMappedData);
     }
@@ -342,7 +365,7 @@ VKTRACER_EXPORT VKAPI_ATTR void VKAPI_CALL __HOOKED_vkFreeMemory(VkDevice device
                                                                  const VkAllocationCallbacks* pAllocator) {
     vktrace_trace_packet_header* pHeader;
     packet_vkFreeMemory* pPacket = NULL;
-#ifdef USE_PAGEGUARD_SPEEDUP
+#if defined(USE_PAGEGUARD_SPEEDUP)
     // There are some apps call vkFreeMemory without call vkUnmapMemory on
     // same memory object. in that situation, capture/playback run into error.
     // so add process here for that situation.
@@ -393,7 +416,7 @@ VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkInvalidateMappedMemory
     packet_vkInvalidateMappedMemoryRanges* pPacket = NULL;
     uint64_t trace_begin_time = vktrace_get_time();
 
-#ifdef USE_PAGEGUARD_SPEEDUP
+#if defined(USE_PAGEGUARD_SPEEDUP)
     pageguardEnter();
     resetAllReadFlagAndPageGuard();
 #endif
@@ -466,7 +489,7 @@ VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkInvalidateMappedMemory
             vktrace_delete_trace_packet(&pHeader);
         }
     }
-#ifdef USE_PAGEGUARD_SPEEDUP
+#if defined(USE_PAGEGUARD_SPEEDUP)
     pageguardExit();
 #endif
     return result;
@@ -481,7 +504,7 @@ VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkFlushMappedMemoryRange
     uint64_t pnextSize = 0;
     uint32_t iter;
     packet_vkFlushMappedMemoryRanges* pPacket = NULL;
-#ifdef USE_PAGEGUARD_SPEEDUP
+#if defined(USE_PAGEGUARD_SPEEDUP)
     pageguardEnter();
     PBYTE* ppPackageData = new PBYTE[memoryRangeCount];
     getPageGuardControlInstance().vkFlushMappedMemoryRangesPageGuardHandle(
@@ -491,7 +514,7 @@ VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkFlushMappedMemoryRange
     uint64_t trace_begin_time = vktrace_get_time();
 
 // find out how much memory is in the ranges
-#ifndef USE_PAGEGUARD_SPEEDUP
+#if !defined(USE_PAGEGUARD_SPEEDUP)
     for (iter = 0; iter < memoryRangeCount; iter++) {
         VkMappedMemoryRange* pRange = (VkMappedMemoryRange*)&pMemoryRanges[iter];
         dataSize += ROUNDUP_TO_4((size_t)(getPageGuardControlInstance().getMappedMemorySize(device, pRange->memory)));
@@ -533,7 +556,7 @@ VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkFlushMappedMemoryRange
         VKAllocInfo* pEntry = find_mem_info_entry(pRange->memory);
 
         if (pEntry != NULL) {
-#if PLATFORM_LINUX
+#if defined(PLATFORM_LINUX)
             VkDeviceSize rangeSize __attribute__((unused));
 #else
             VkDeviceSize rangeSize;
@@ -549,7 +572,7 @@ VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkFlushMappedMemoryRange
             assert(pEntry->totalSize >= rangeSize);
             assert(pRange->offset >= pEntry->rangeOffset &&
                    (pRange->offset + rangeSize) <= (pEntry->rangeOffset + pEntry->rangeSize));
-#ifdef USE_PAGEGUARD_SPEEDUP
+#if defined(USE_PAGEGUARD_SPEEDUP)
             LPPageGuardMappedMemory pOPTMemoryTemp = getPageGuardControlInstance().findMappedMemoryObject(device, pRange);
             VkDeviceSize OPTPackageSizeTemp = 0;
             if (pOPTMemoryTemp) {
@@ -576,7 +599,7 @@ VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkFlushMappedMemoryRange
                              pHeader->global_packet_index);
         }
     }
-#ifdef USE_PAGEGUARD_SPEEDUP
+#if defined(USE_PAGEGUARD_SPEEDUP)
     delete[] ppPackageData;
 #endif
     vktrace_leave_critical_section(&g_memInfoLock);
@@ -602,7 +625,7 @@ VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkFlushMappedMemoryRange
             vktrace_delete_trace_packet(&pHeader);
         }
     }
-#ifdef USE_PAGEGUARD_SPEEDUP
+#if defined(USE_PAGEGUARD_SPEEDUP)
     pageguardExit();
 #endif
     return result;
@@ -2077,7 +2100,7 @@ VKTRACER_EXPORT VKAPI_ATTR void VKAPI_CALL __HOOKED_vkUpdateDescriptorSets(VkDev
 
 VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkQueueSubmit(VkQueue queue, uint32_t submitCount,
                                                                       const VkSubmitInfo* pSubmits, VkFence fence) {
-#ifdef USE_PAGEGUARD_SPEEDUP
+#if defined(USE_PAGEGUARD_SPEEDUP)
     pageguardEnter();
     flushAllChangedMappedMemory(&vkFlushMappedMemoryRangesWithoutAPICall);
     resetAllReadFlagAndPageGuard();
@@ -3421,7 +3444,7 @@ VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkQueuePresentKHR(VkQueu
 }
 
 /* TODO these can probably be moved into code gen */
-#ifdef VK_USE_PLATFORM_WIN32_KHR
+#if defined(VK_USE_PLATFORM_WIN32_KHR)
 VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkCreateWin32SurfaceKHR(VkInstance instance,
                                                                                 const VkWin32SurfaceCreateInfoKHR* pCreateInfo,
                                                                                 const VkAllocationCallbacks* pAllocator,
@@ -3489,7 +3512,7 @@ __HOOKED_vkGetPhysicalDeviceWin32PresentationSupportKHR(VkPhysicalDevice physica
     return result;
 }
 #endif
-#ifdef VK_USE_PLATFORM_XCB_KHR
+#if defined(VK_USE_PLATFORM_XCB_KHR)
 VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkCreateXcbSurfaceKHR(VkInstance instance,
                                                                               const VkXcbSurfaceCreateInfoKHR* pCreateInfo,
                                                                               const VkAllocationCallbacks* pAllocator,
@@ -3561,7 +3584,7 @@ VKTRACER_EXPORT VKAPI_ATTR VkBool32 VKAPI_CALL __HOOKED_vkGetPhysicalDeviceXcbPr
     return result;
 }
 #endif
-#ifdef VK_USE_PLATFORM_XLIB_KHR
+#if defined(VK_USE_PLATFORM_XLIB_KHR)
 VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkCreateXlibSurfaceKHR(VkInstance instance,
                                                                                const VkXlibSurfaceCreateInfoKHR* pCreateInfo,
                                                                                const VkAllocationCallbacks* pAllocator,
@@ -3633,7 +3656,7 @@ VKTRACER_EXPORT VKAPI_ATTR VkBool32 VKAPI_CALL __HOOKED_vkGetPhysicalDeviceXlibP
     return result;
 }
 
-#ifdef VK_USE_PLATFORM_XLIB_XRANDR_EXT
+#if defined(VK_USE_PLATFORM_XLIB_XRANDR_EXT)
 
 VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkAcquireXlibDisplayEXT(
     VkPhysicalDevice physicalDevice,
@@ -3699,7 +3722,7 @@ VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkGetRandROutputDisplayE
 }
 #endif
 #endif
-#ifdef VK_USE_PLATFORM_WAYLAND_KHR
+#if defined(VK_USE_PLATFORM_WAYLAND_KHR)
 VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkCreateWaylandSurfaceKHR(VkInstance instance,
                                                                                   const VkWaylandSurfaceCreateInfoKHR* pCreateInfo,
                                                                                   const VkAllocationCallbacks* pAllocator,
@@ -3772,7 +3795,7 @@ VKTRACER_EXPORT VKAPI_ATTR VkBool32 VKAPI_CALL __HOOKED_vkGetPhysicalDeviceWayla
     return result;
 }
 #endif
-#ifdef VK_USE_PLATFORM_ANDROID_KHR
+#if defined(VK_USE_PLATFORM_ANDROID_KHR)
 VKTRACER_EXPORT VKAPI_ATTR VkResult VKAPI_CALL __HOOKED_vkCreateAndroidSurfaceKHR(VkInstance instance,
                                                                                   const VkAndroidSurfaceCreateInfoKHR* pCreateInfo,
                                                                                   const VkAllocationCallbacks* pAllocator,
@@ -4714,42 +4737,42 @@ VKTRACER_EXPORT VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL __HOOKED_vkGetInstanceP
             if (!strcmp("vkGetPhysicalDeviceSurfacePresentModesKHR", funcName))
                 return (PFN_vkVoidFunction)__HOOKED_vkGetPhysicalDeviceSurfacePresentModesKHR;
         }
-#ifdef VK_USE_PLATFORM_XLIB_KHR
+#if defined(VK_USE_PLATFORM_XLIB_KHR)
         if (instData->KHRXlibSurfaceEnabled) {
             if (!strcmp("vkCreateXlibSurfaceKHR", funcName)) return (PFN_vkVoidFunction)__HOOKED_vkCreateXlibSurfaceKHR;
             if (!strcmp("vkGetPhysicalDeviceXlibPresentationSupportKHR", funcName))
                 return (PFN_vkVoidFunction)__HOOKED_vkGetPhysicalDeviceXlibPresentationSupportKHR;
         }
 #endif
-#ifdef VK_USE_PLATFORM_XCB_KHR
+#if defined(VK_USE_PLATFORM_XCB_KHR)
         if (instData->KHRXcbSurfaceEnabled) {
             if (!strcmp("vkCreateXcbSurfaceKHR", funcName)) return (PFN_vkVoidFunction)__HOOKED_vkCreateXcbSurfaceKHR;
             if (!strcmp("vkGetPhysicalDeviceXcbPresentationSupportKHR", funcName))
                 return (PFN_vkVoidFunction)__HOOKED_vkGetPhysicalDeviceXcbPresentationSupportKHR;
         }
 #endif
-#ifdef VK_USE_PLATFORM_WAYLAND_KHR
+#if defined(VK_USE_PLATFORM_WAYLAND_KHR)
         if (instData->KHRWaylandSurfaceEnabled) {
             if (!strcmp("vkCreateWaylandSurfaceKHR", funcName)) return (PFN_vkVoidFunction)__HOOKED_vkCreateWaylandSurfaceKHR;
             if (!strcmp("vkGetPhysicalDeviceWaylandPresentationSupportKHR", funcName))
                 return (PFN_vkVoidFunction)__HOOKED_vkGetPhysicalDeviceWaylandPresentationSupportKHR;
         }
 #endif
-#ifdef VK_USE_PLATFORM_MIR_KHR
+#if defined(VK_USE_PLATFORM_MIR_KHR)
         if (instData->KHRMirSurfaceEnabled) {
             if (!strcmp("vkCreateMirSurfaceKHR", funcName)) return (PFN_vkVoidFunction)__HOOKED_vkCreateMirSurfaceKHR;
             if (!strcmp("vkGetPhysicalDeviceMirPresentationSupportKHR", funcName))
                 return (PFN_vkVoidFunction)__HOOKED_vkGetPhysicalDeviceMirPresentationSupportKHR;
         }
 #endif
-#ifdef VK_USE_PLATFORM_WIN32_KHR
+#if defined(VK_USE_PLATFORM_WIN32_KHR)
         if (instData->KHRWin32SurfaceEnabled) {
             if (!strcmp("vkCreateWin32SurfaceKHR", funcName)) return (PFN_vkVoidFunction)__HOOKED_vkCreateWin32SurfaceKHR;
             if (!strcmp("vkGetPhysicalDeviceWin32PresentationSupportKHR", funcName))
                 return (PFN_vkVoidFunction)__HOOKED_vkGetPhysicalDeviceWin32PresentationSupportKHR;
         }
 #endif
-#ifdef VK_USE_PLATFORM_ANDROID_KHR
+#if defined(VK_USE_PLATFORM_ANDROID_KHR)
         if (instData->KHRAndroidSurfaceEnabled) {
             if (!strcmp("vkCreateAndroidSurfaceKHR", funcName)) return (PFN_vkVoidFunction)__HOOKED_vkCreateAndroidSurfaceKHR;
         }
