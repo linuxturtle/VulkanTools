@@ -129,17 +129,14 @@ FOREACH(subdir ${ST_SUBDIRS})
 ENDFOREACH()
 
 # Add targets for JSON file install.
-# Need to remove the "./" from the library path before installing to /etc.
-if(UNIX)
-    foreach (factory_layer ${ST_SUBDIRS})
-        set(config_file VkLayer_${factory_layer})
-        add_custom_target(${config_file}-staging-json ALL
-            COMMAND mkdir -p ${CMAKE_CURRENT_BINARY_DIR}/../layers/staging-json
-            COMMAND cp ${CMAKE_CURRENT_BINARY_DIR}/../layers/${config_file}.json ${CMAKE_CURRENT_BINARY_DIR}/../layers/staging-json
-            COMMAND sed -i -e "/\"library_path\":/s$./libVkLayer$libVkLayer$" ${CMAKE_CURRENT_BINARY_DIR}/../layers/staging-json/${config_file}.json
-            VERBATIM
-            DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/../layers/${config_file}.json
-            )
-        install(FILES ${CMAKE_CURRENT_BINARY_DIR}/../layers/staging-json/${config_file}.json DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/vulkan/explicit_layer.d)
-    endforeach(factory_layer)
-endif()
+foreach (factory_layer ${ST_SUBDIRS})
+    set(config_file VkLayer_${factory_layer})
+    add_custom_target(
+        ${config_file}-staging-json ALL
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/../layers/staging-json
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_BINARY_DIR}/../layers/${config_file}.json ${CMAKE_CURRENT_BINARY_DIR}/../layers/staging-json
+        VERBATIM
+        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/../layers/${config_file}.json
+    )
+    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/../layers/staging-json/${config_file}.json DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/vulkan/explicit_layer.d)
+endforeach(factory_layer)
