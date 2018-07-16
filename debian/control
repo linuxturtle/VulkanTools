@@ -1,4 +1,4 @@
-Source: vulkan-tools
+Source: lunarg-tools
 Section: libdevel
 Priority: optional
 Maintainer: Brett Johnson <brett@linuxturtle.net>
