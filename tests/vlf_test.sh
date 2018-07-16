@@ -51,7 +51,8 @@ fi
 cd $(dirname "${BASH_SOURCE[0]}")
 
 VULKANINFO="$VULKAN_TOOLS_BUILD_DIR/install/bin/vulkaninfo"
-VK_ICD_FILENAMES="$VULKAN_TOOLS_BUILD_DIR/icd/VkICD_mock_icd.json"
+VK_ICD_FILENAMES="$VULKAN_TOOLS_BUILD_DIR/icd/VkICD_mock_icd.json" \
+    LD_LIBRARY_PATH="$LD_LIBRARY_PATH:../layers" \
     VK_LAYER_PATH=../layers \
     VK_INSTANCE_LAYERS=VK_LAYER_LUNARG_demo_layer \
     "$VULKANINFO" > file.tmp
