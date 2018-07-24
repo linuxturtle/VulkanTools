@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 
 %:
-	dh $@ --parallel --with quilt
+	dh $@ --with quilt
 
 override_dh_clean:
 	dh_clean
