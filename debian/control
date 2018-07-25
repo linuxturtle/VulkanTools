@@ -7,7 +7,7 @@ Build-Depends: debhelper (>=9),
  libvulkan1,
  vulkan-validation-layers,
  vulkan-validation-layers-dev,
- glslang-tools
+ glslang-tools,
  cmake,
  bison,
  libx11-xcb-dev,
